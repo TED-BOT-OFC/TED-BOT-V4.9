@@ -1,0 +1,286 @@
+const axios = require('axios');
+const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
+const FormData = require('form-data');
+const path = require('path');
+
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function getExtensionFromMime(mimetype = '') {
+    const map = {
+        'image/jpeg': 'jpg',
+        'image/jpg': 'jpg',
+        'image/png': 'png',
+        'image/webp': 'webp',
+        'image/gif': 'gif'
+    };
+    return map[mimetype.toLowerCase()] || 'jpg';
+}
+
+function unwrapMessageContent(message) {
+    if (!message) return null;
+
+    if (message.ephemeralMessage?.message) {
+        return unwrapMessageContent(message.ephemeralMessage.message);
+    }
+
+    if (message.viewOnceMessage?.message) {
+        return unwrapMessageContent(message.viewOnceMessage.message);
+    }
+
+    if (message.viewOnceMessageV2?.message) {
+        return unwrapMessageContent(message.viewOnceMessageV2.message);
+    }
+
+    if (message.viewOnceMessageV2Extension?.message) {
+        return unwrapMessageContent(message.viewOnceMessageV2Extension.message);
+    }
+
+    return message;
+}
+
+function getImageMessage(info) {
+    const main = unwrapMessageContent(info.message);
+    const quotedRaw = info.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+    const quoted = unwrapMessageContent(quotedRaw);
+
+    if (main?.imageMessage) {
+        return main.imageMessage;
+    }
+
+    if (quoted?.imageMessage) {
+        return quoted.imageMessage;
+    }
+
+    return null;
+}
+
+async function bufferFromStream(stream, maxSize) {
+    const chunks = [];
+    let totalLength = 0;
+
+    for await (const chunk of stream) {
+        totalLength += chunk.length;
+
+        if (totalLength > maxSize) {
+            throw new Error(`LIMIT_EXCEEDED:${totalLength}`);
+        }
+
+        chunks.push(chunk);
+    }
+
+    return Buffer.concat(chunks);
+}
+
+async function uploadToCatbox(buffer, filename, mimetype, userhash = null) {
+    const form = new FormData();
+    form.append('reqtype', 'fileupload');
+
+    if (userhash) {
+        form.append('userhash', userhash);
+    }
+
+    form.append('fileToUpload', buffer, {
+        filename,
+        contentType: mimetype,
+        knownLength: buffer.length
+    });
+
+    const response = await axios.post('https://catbox.moe/user/api.php', form, {
+        headers: {
+            ...form.getHeaders(),
+            'Accept': '*/*',
+            'User-Agent': 'Mozilla/5.0'
+        },
+        timeout: 180000,
+        maxBodyLength: Infinity,
+        maxContentLength: Infinity,
+        responseType: 'text',
+        validateStatus: () => true
+    });
+
+    const body = String(response.data || '').trim();
+
+    return {
+        status: response.status,
+        body
+    };
+}
+
+async function uploadToLitterbox(buffer, filename, mimetype, time = '72h') {
+    const form = new FormData();
+    form.append('reqtype', 'fileupload');
+    form.append('time', time);
+    form.append('fileToUpload', buffer, {
+        filename,
+        contentType: mimetype,
+        knownLength: buffer.length
+    });
+
+    const response = await axios.post('https://litterbox.catbox.moe/resources/internals/api.php', form, {
+        headers: {
+            ...form.getHeaders(),
+            'Accept': '*/*',
+            'User-Agent': 'Mozilla/5.0'
+        },
+        timeout: 180000,
+        maxBodyLength: Infinity,
+        maxContentLength: Infinity,
+        responseType: 'text',
+        validateStatus: () => true
+    });
+
+    const body = String(response.data || '').trim();
+
+    return {
+        status: response.status,
+        body
+    };
+}
+
+module.exports = {
+    comando: ['pixgallery', 'pixgal', 'catbox'],
+    exec: async (sock, from, Info, args, prefix, sasah) => {
+        const reply = async (texto) => {
+            return sock.sendMessage(from, { text: texto }, { quoted: sasah });
+        };
+
+        try {
+            const imageMessage = getImageMessage(Info);
+
+            if (!imageMessage) {
+                return reply(
+                    "❌ Envie ou marque uma imagem com o comando.\n\n" +
+                    `Exemplo: ${prefix}catbox\n\n` +
+                    "*Nota:* o limite máximo do Catbox é de 200MB."
+                );
+            }
+
+            await reply("⏳ Baixando imagem e enviando para o Catbox...");
+
+            const mimetype = imageMessage.mimetype || 'image/jpeg';
+            const extension = getExtensionFromMime(mimetype);
+            const filename = `upload.${extension}`;
+
+            const maxSize = 200 * 1024 * 1024;
+            const stream = await downloadContentFromMessage(imageMessage, 'image');
+            const buffer = await bufferFromStream(stream, maxSize);
+
+            if (!buffer.length) {
+                throw new Error('BUFFER_EMPTY');
+            }
+
+            const sizeMb = (buffer.length / (1024 * 1024)).toFixed(2);
+
+            // até 3 tentativas no Catbox quando ele estiver pausado
+            let lastCatboxResult = null;
+            const retryDelays = [0, 5000, 12000];
+
+            for (let i = 0; i < retryDelays.length; i++) {
+                if (retryDelays[i] > 0) {
+                    await reply(`⏳ Catbox temporariamente ocupado. Tentando novamente (${i + 1}/${retryDelays.length})...`);
+                    await sleep(retryDelays[i]);
+                }
+
+                const result = await uploadToCatbox(buffer, filename, mimetype);
+                lastCatboxResult = result;
+
+                const bodyLower = result.body.toLowerCase();
+
+                if (result.status >= 200 && result.status < 300 && result.body.startsWith('http')) {
+                    const fileUrl = result.body;
+                    const fileName = path.basename(fileUrl);
+
+                    const mensagemFinal =
+                        `✅ *Upload concluído com sucesso!*\n\n` +
+                        `🔗 *Link Direto:* ${fileUrl}\n` +
+                        `📄 *Nome do Arquivo:* ${fileName}\n` +
+                        `🧩 *Tipo:* ${mimetype}\n` +
+                        `⚖️ *Tamanho:* ${sizeMb}MB\n` +
+                        `🌐 *Serviço:* Catbox.moe\n\n` +
+                        `_Nota: uploads anônimos não podem ser deletados._`;
+
+                    return await reply(mensagemFinal);
+                }
+
+                // Se o servidor disser claramente que pausou uploads, tenta de novo
+                if (
+                    result.status === 412 ||
+                    bodyLower.includes('uploads paused') ||
+                    bodyLower.includes('please wait')
+                ) {
+                    continue;
+                }
+
+                // outro erro diferente: não insiste
+                break;
+            }
+
+            // fallback opcional para Litterbox
+            await reply(
+                "⚠️ O Catbox está pausando uploads no momento.\n" +
+                "Estou tentando um envio temporário pelo Litterbox..."
+            );
+
+            const litterResult = await uploadToLitterbox(buffer, filename, mimetype, '72h');
+
+            if (litterResult.status >= 200 && litterResult.status < 300 && litterResult.body.startsWith('http')) {
+                const fileUrl = litterResult.body;
+                const fileName = path.basename(fileUrl);
+
+                const mensagemFinal =
+                    `⚠️ *Catbox indisponível no momento.*\n\n` +
+                    `✅ *Upload temporário concluído com sucesso!*\n\n` +
+                    `🔗 *Link Direto:* ${fileUrl}\n` +
+                    `📄 *Nome do Arquivo:* ${fileName}\n` +
+                    `🧩 *Tipo:* ${mimetype}\n` +
+                    `⚖️ *Tamanho:* ${sizeMb}MB\n` +
+                    `🌐 *Serviço:* Litterbox (temporário)\n` +
+                    `⏳ *Expira em:* 72h`;
+
+                return await reply(mensagemFinal);
+            }
+
+            const catboxBody = lastCatboxResult?.body || 'Sem detalhes';
+            const litterBody = litterResult?.body || 'Sem detalhes';
+
+            return await reply(
+                "❌ Não foi possível concluir o upload.\n\n" +
+                `*Catbox:* status ${lastCatboxResult?.status || 'desconhecido'}\n` +
+                `Detalhes: ${catboxBody}\n\n` +
+                `*Litterbox:* status ${litterResult?.status || 'desconhecido'}\n` +
+                `Detalhes: ${litterBody}`
+            );
+
+        } catch (e) {
+            console.error('Erro no upload Catbox:', e);
+
+            if (String(e.message || '').startsWith('LIMIT_EXCEEDED:')) {
+                const bytes = Number(String(e.message).split(':')[1] || 0);
+                const sizeMb = (bytes / (1024 * 1024)).toFixed(2);
+
+                return await sock.sendMessage(from, {
+                    text:
+                        `❌ O arquivo é muito grande.\n` +
+                        `⚖️ Tamanho detectado: ${sizeMb}MB\n` +
+                        `📌 Limite do Catbox: 200MB`
+                }, { quoted: sasah });
+            }
+
+            let errorMsg = "❌ Erro ao realizar upload.";
+
+            if (e.response) {
+                errorMsg += `\nStatus: ${e.response.status}`;
+                errorMsg += `\nDetalhes: ${typeof e.response.data === 'string'
+                    ? e.response.data
+                    : JSON.stringify(e.response.data)
+                }`;
+            } else {
+                errorMsg += `\nDetalhes: ${e.message}`;
+            }
+
+            await sock.sendMessage(from, { text: errorMsg }, { quoted: sasah });
+        }
+    }
+};
