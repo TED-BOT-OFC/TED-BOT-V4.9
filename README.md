@@ -11,7 +11,7 @@
 
 <p align="center">
 <img title="Autor" src="https://img.shields.io/badge/Autor-@tedzinho_-orange.svg?style=for-the-badge&logo=github"></a>
-<img title="Versão" src="https://img.shields.io/badge/Versão-𝟒.8.0-orange.svg?style=for-the-badge&logo=github"></a>
+<img title="Versão" src="https://img.shields.io/badge/Versão-𝟒.9.0-orange.svg?style=for-the-badge&logo=github"></a>
 </p>
 
 ## Instalação Via Termux  <img src="https://user-images.githubusercontent.com/108157095/182052725-6568419a-6a9f-490a-85ea-90b94af694fe.png" height="25px">
@@ -29,7 +29,7 @@ termux-setup-storage
 ```
 **3° Comando**
 ```
-cd /sdcard/Download && git clone https://github.com/TED-BOT-OFC/TED-BOT-V4.8 && cd /sdcard/Download/TED-BOT-V4.9
+cd /sdcard/Download && git clone https://github.com/TED-BOT-OFC/TED-BOT-V4.9 && cd /sdcard/Download/TED-BOT-V4.9
 ```
 **4° Comando**
 ```
