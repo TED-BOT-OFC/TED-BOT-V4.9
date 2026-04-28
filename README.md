@@ -33,7 +33,7 @@ termux-setup-storage
 
 ### 3. Baixar o Bot (Clone)
 ```bash
-cd /sdcard/Download && git clone https://github.com/TED-BOT-OFC/TED-BOT-V4.8 && cd /sdcard/Download/TED-BOT-V4.9
+cd /sdcard/Download && git clone https://github.com/TED-BOT-OFC/TED-BOT-V4.9 && cd /sdcard/Download/TED-BOT-V4.9
 ```
 
 ### 4. Instalar Dependências
