@@ -45,7 +45,7 @@ module.exports = {
 
       if (!isImage && !isVideo) {
         return sock.sendMessage(from, {
-          text: "❌ Envie ou marque uma imagem/vídeo (até 10s) para criar figurinha."
+          text: "❌ Envie ou marque uma imagem/vídeo para criar figurinha."
         }, { quoted: Info });
       }
 
@@ -54,9 +54,12 @@ module.exports = {
         ? (msgContent.imageMessage || quoted.imageMessage)
         : (msgContent.videoMessage || quoted.videoMessage);
 
-      // Limite de tempo rigoroso para vídeos
-      if (mediaType === "video" && mediaObj.seconds > 10) {
-        return sock.sendMessage(from, { text: "❌ O vídeo precisa ter no máximo 10 segundos para caber no limite do WhatsApp." }, { quoted: Info });
+      // Lógica de tempo para vídeos
+      let durationLimit = 9; // Limite de 9 segundos
+      if (mediaType === "video" && mediaObj.seconds > durationLimit) {
+        await sock.sendMessage(from, { 
+          text: `⚠️ O vídeo é longo, vou capturar apenas os primeiros ${durationLimit} segundos.\n\n💡 Dica: Se quiser uma parte específica, corte o vídeo antes de enviar!` 
+        }, { quoted: Info });
       }
 
       await sock.sendMessage(from, { react: { text: "⏳", key: Info.key } });
@@ -75,14 +78,23 @@ module.exports = {
 
       fs.writeFileSync(inputFile, buffer);
 
+      // Define se deve ser quadrado (somente se o comando for 'f')
+      const isSquare = command.toLowerCase() === 'f';
+      
       let ffmpegCommand;
       if (isImage) {
-        // Para imagem, mantemos uma qualidade boa pois o tamanho raramente é problema
-        ffmpegCommand = `ffmpeg -i "${inputFile}" -vf "scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000,format=rgba" -vcodec libwebp -lossless 1 -qscale 75 -preset picture -an -vsync 0 -y "${outputFile}"`;
+        const videoFilter = isSquare 
+          ? "scale=512:512:force_original_aspect_ratio=increase,crop=512:512,format=rgba"
+          : "scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000,format=rgba";
+          
+        ffmpegCommand = `ffmpeg -i "${inputFile}" -vf "${videoFilter}" -vcodec libwebp -lossless 1 -qscale 75 -preset picture -an -vsync 0 -y "${outputFile}"`;
       } else {
-        // PARA VÍDEO: Compressão agressiva para garantir que o arquivo fique abaixo de 1MB
-        // Reduzimos FPS para 10, usamos qscale 40 (menor qualidade = menor arquivo) e limitamos a resolução
-        ffmpegCommand = `ffmpeg -i "${inputFile}" -vf "fps=10,scale=320:320:force_original_aspect_ratio=decrease,pad=320:320:(ow-iw)/2:(oh-ih)/2:color=0x00000000,format=rgba" -vcodec libwebp -lossless 0 -qscale 40 -preset default -loop 0 -an -vsync 0 -t 8 -y "${outputFile}"`;
+        // PARA VÍDEO: Captura apenas 9 segundos (-t 9)
+        const videoFilter = isSquare
+          ? `fps=10,scale=320:320:force_original_aspect_ratio=increase,crop=320:320,format=rgba`
+          : `fps=10,scale=320:320:force_original_aspect_ratio=decrease,pad=320:320:(ow-iw)/2:(oh-ih)/2:color=0x00000000,format=rgba`;
+
+        ffmpegCommand = `ffmpeg -i "${inputFile}" -t ${durationLimit} -vf "${videoFilter}" -vcodec libwebp -lossless 0 -qscale 40 -preset default -loop 0 -an -vsync 0 -y "${outputFile}"`;
       }
 
       await execAsync(ffmpegCommand);
@@ -114,14 +126,9 @@ module.exports = {
 
       await img.save(finalFile);
 
-      // Verificar tamanho do arquivo final
+      // Verificar tamanho do arquivo final e comprimir se necessário
       const stats = fs.statSync(finalFile);
-      const fileSizeInBytes = stats.size;
-      const fileSizeInMegabytes = fileSizeInBytes / (1024 * 1024);
-
-      if (fileSizeInMegabytes > 1.0) {
-         console.log(`⚠️ Figurinha muito grande: ${fileSizeInMegabytes.toFixed(2)}MB. Tentando compressão extra...`);
-         // Se ainda for grande, tentamos uma compressão ainda mais forte
+      if (stats.size / (1024 * 1024) > 1.0) {
          const extraOutputFile = path.join(tempDir, `extra_${timestamp}.webp`);
          await execAsync(`ffmpeg -i "${outputFile}" -vcodec libwebp -lossless 0 -qscale 20 -preset default -loop 0 -an -y "${extraOutputFile}"`);
          if (fs.existsSync(extraOutputFile)) {
@@ -134,7 +141,7 @@ module.exports = {
       await sock.sendMessage(from, { sticker: fs.readFileSync(finalFile) }, { quoted: Info });
       await sock.sendMessage(from, { react: { text: "✅", key: Info.key } });
 
-      // Limpeza segura
+      // Limpeza
       setTimeout(() => {
         [inputFile, outputFile, finalFile].forEach(f => {
           if (fs.existsSync(f)) fs.unlinkSync(f);
@@ -144,7 +151,7 @@ module.exports = {
     } catch (err) {
       console.error('❌ Erro no comando sticker:', err);
       await sock.sendMessage(from, { react: { text: "❌", key: Info.key } });
-      await sock.sendMessage(from, { text: "❌ Erro ao gerar figurinha. O vídeo pode ser muito complexo ou pesado." }, { quoted: Info });
+      await sock.sendMessage(from, { text: "❌ Erro ao gerar figurinha." }, { quoted: Info });
     }
   }
 };
