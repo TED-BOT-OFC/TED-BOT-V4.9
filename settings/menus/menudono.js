@@ -3,8 +3,8 @@ const config = require("../config.json");
 // Função para gerar data/hora formatada
 function getCurrentDateTime() {
     const now = new Date();
-    const date = now.toLocaleDateString("pt-BR");
-    const time = now.toLocaleTimeString("pt-BR");
+    const date = now.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+    const time = now.toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo" });
     return { date, time };
 }
 

@@ -1,27 +1,30 @@
 const config = require("../config.json");
 
-// 🎄 Função para gerar data/hora formatada
+// 🎄 Função para gerar data/hora formatada no fuso de Brasília
 function getCurrentDateTime() {
     const now = new Date();
-    const date = now.toLocaleDateString("pt-BR");
-    const time = now.toLocaleTimeString("pt-BR");
+    // Força o fuso horário de Brasília (America/Sao_Paulo)
+    const date = now.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+    const time = now.toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo" });
     return { date, time };
 }
 
 // 🎅 MENU DE NATAL — ${config.NomeDoBot}
 function generateMenu() {
     const { date, time } = getCurrentDateTime();
-
     return `╔══════════════╗
    🎭 ${config.NomeDoBot} 🎭
 ╚══════════════╝
 📅 ${date} • ⏰ ${time}  
 👑 Dono: ${config.NickDono}
+
 ─────── ✦ MENU ✦ ───────
+
 🎉 PRINCIPAL
 ▸ ${config.prefix}menuadm  
 ▸ ${config.prefix}brincadeiras  
 ▸ ${config.prefix}menulogos  
+
 ⚙️ SISTEMA
 ▸ ${config.prefix}ping  
 ▸ ${config.prefix}status  
@@ -34,6 +37,7 @@ function generateMenu() {
 ▸ ${config.prefix}jeff  
 ▸ ${config.prefix}faber  
 ▸ ${config.prefix}norian
+
 ✨ CONVERSÃO
 ▸ ${config.prefix}totext  
 ▸ ${config.prefix}ptvmsg  
@@ -42,6 +46,7 @@ function generateMenu() {
 ▸ ${config.prefix}brat  
 ▸ ${config.prefix}gerarlink  
 ▸ ${config.prefix}rvisu  
+
 📥 DOWNLOADS
 ▸ ${config.prefix}tomp3  
 ▸ ${config.prefix}8d (Efeito 3D) 🎧
@@ -65,10 +70,13 @@ function generateMenu() {
 ▸ ${config.prefix}Pinterest2  
 ▸ ${config.prefix}gif  
 ▸ ${config.prefix}robloxcodes  
+
 👤 PERFIL
 ▸ ${config.prefix}perfil  
 ▸ ${config.prefix}perfilff
+
 🎙️ ALTERADORES DE VOZ
+
 ───── ✦ BOA FOLIA ✦ ─────
 `;
 }
